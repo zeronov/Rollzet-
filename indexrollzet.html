@@ -1,0 +1,84 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ROLLZET</title>
+<style>
+*{box-sizing:border-box}body{margin:auto;background:#000;color:#fff;font:16px system-ui,sans-serif;padding:12px;max-width:480px}
+button,input{font:inherit;border:0;border-radius:6px;padding:10px;background:#555;color:#fff;cursor:pointer}
+button.on{background:#999;color:#000}button:disabled{opacity:.4}
+input{background:#222;width:100%;cursor:text}label{display:block;margin:6px 0}
+.r{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.r>*{flex:1;min-width:48px}
+.c{border:1px solid #333;border-radius:8px;padding:10px;margin:8px 0}
+small,.m{color:#aaa}h1{margin:0;font-size:22px}
+#coin{width:90px;height:90px;border-radius:50%;background:#888;margin:10px auto;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;transition:transform .5s}
+.d{display:inline-block;width:42px;height:42px;line-height:42px;background:#fff;color:#000;border-radius:6px;font-weight:700;text-align:center;margin:2px}
+table{width:100%;font-size:13px}
+</style></head><body><div id="app"></div>
+<script>
+const $=s=>document.querySelector(s),app=$('#app'),fmt=n=>'₦'+n.toLocaleString('en-NG',{maximumFractionDigits:2});
+const cfg={edge:.10,maxMult:100,minStake:100,wfMin:6.8,wfMax:10,dice:true,coin:true,pw:'rollzet',prog:Array(21).fill(1)};
+try{Object.assign(cfg,JSON.parse(localStorage.rz_cfg||'{}'))}catch(e){}
+let S,V={game:'dice',n:1,pick:null,side:null,stake:500};
+const fresh=()=>S={bal:10000,run:null,log:[],msg:'',last:'',adm:S&&S.adm,st:{stakes:0,fees:0,wfees:0,wins:0,losses:0,paid:0}};fresh();
+// secure-ish demo RNG (real money needs a server-side RNG)
+const rnd=n=>{const a=new Uint32Array(1),lim=4294967296-4294967296%n;do crypto.getRandomValues(a);while(a[0]>=lim);return a[0]%n};
+// exact probability of each dice total by counting combinations
+function dist(n){let c=[1];for(let i=0;i<n;i++){const d=Array(c.length+5).fill(0);c.forEach((v,j)=>{for(let k=0;k<6;k++)d[j+k]+=v});c=d}return c}
+const prob=(n,t)=>dist(n)[t-n]/6**n;
+// multiplier = (1 - house edge) / probability, times admin progression factor for this streak step
+const rm=(p,k)=>(1-cfg.edge)/p*(cfg.prog[Math.min(k,cfg.prog.length-1)]||1);
+const say=m=>{S.msg=m;render()};
+function render(){
+ if(location.hash=='#admin')return admin();
+ const g=V.game,r=S.run;
+ let h=`<h1>ROLLZET</h1><small>⚠ Demo balance is temporary and is NOT real money. Reloading clears it.</small>
+<div class=c>Balance: <b>${fmt(S.bal)}</b><div class=r><button onclick=dep()>Deposit (min ₦500)</button><button onclick=wd()>Withdraw (min ₦100)</button><button onclick=rdep()>Random demo deposit</button></div></div>
+<div class=r><button class="${g=='dice'?'on':''}" onclick="V.game='dice';render()">DICE ROLL</button><button class="${g=='coin'?'on':''}" onclick="V.game='coin';render()">COIN FLIP</button></div>`;
+ if(!cfg[g])h+='<p>This game is switched off.</p>';
+ else{
+  if(g=='dice'){
+   h+=`<div class=m>Dice</div><div class=r>${[1,2,3,4,5].map(n=>`<button class="${V.n==n?'on':''}" onclick="V.n=${n};V.pick=null;render()">${n}</button>`).join('')}</div><div class=m>Your total (${V.n}–${V.n*6})</div><div class=r>${Array.from({length:V.n*5+1},(_,i)=>i+V.n).map(t=>`<button style="flex:0 0 17%" class="${V.pick==t?'on':''}" onclick="V.pick=${t};render()">${t}</button>`).join('')}</div>`;
+   h+=`<div style="text-align:center">${S.last}</div>`;
+  }else{
+   h+=`<div class=r><button class="${V.side=='HEADS'?'on':''}" onclick="V.side='HEADS';render()">HEADS</button><button class="${V.side=='TAILS'?'on':''}" onclick="V.side='TAILS';render()">TAILS</button></div><div id=coin>${S.last||'?'}</div>`;
+  }
+  h+=`<label>Stake (₦)<input type=number inputmode=numeric value="${r?r.stake:V.stake}" ${r?'disabled':''} oninput="V.stake=+this.value;info()"></label><div id=info class=m></div>`;
+  const L=g=='dice'?['PLAY','PLAY AGAIN']:['FLIP','FLIP AGAIN'];
+  h+=r?`<div class=r><button onclick=cash()>CASH OUT ${fmt(r.W*r.M)}</button><button onclick=play()>${L[1]}</button></div>`:`<div class=r><button onclick=play()>${L[0]}</button></div>`;
+ }
+ h+=`<p>${S.msg}</p>`;app.innerHTML=h;info();
+}
+function info(){const el=$('#info');if(!el)return;const g=V.game,r=S.run,s=r?r.stake:V.stake||0;let p=0;
+ if(g=='dice'&&V.pick!=null)p=prob(V.n,V.pick);if(g=='coin'&&V.side)p=.5;
+ const base=r?r.W*r.M:s*.9,k=r?r.k:0;
+ el.innerHTML=`Stake ${fmt(s)} · management fee 10% ${fmt(s*.1)} · wager ${fmt(s*.9)}`+(p?`<br>Chance ${(p*100).toFixed(2)}% · this round pays ×${rm(p,k).toFixed(2)} · if you win: ${fmt(Math.min(base*rm(p,k),(r?r.W:s*.9)*cfg.maxMult))}`:'<br>Make your selection to see the multiplier.')+(r?`<br>Streak ${r.k} · cash out now ${fmt(r.W*r.M)}`:'')+`<br>Max payout: ×${cfg.maxMult} of your wager`}
+function play(){const g=V.game;let r=S.run;
+ if((g=='dice'&&V.pick==null)||(g=='coin'&&!V.side))return say('Make your selection first.');
+ if(!r){const s=V.stake;if(!(s>=cfg.minStake))return say('Minimum stake is '+fmt(cfg.minStake));if(s>S.bal)return say('Not enough demo balance.');
+  S.bal-=s;S.st.stakes+=s;S.st.fees+=s*.1;r=S.run={g,stake:s,W:s*.9,M:1,k:0}}
+ let p,win;
+ if(g=='dice'){const f=Array.from({length:V.n},()=>rnd(6)+1),t=f.reduce((a,b)=>a+b);p=prob(V.n,V.pick);win=t==V.pick;S.last=f.map(x=>`<span class=d>${x}</span>`).join('')+`<div>Total ${t}</div>`}
+ else{const h=rnd(2)?'TAILS':'HEADS';p=.5;win=h==V.side;S.last=h}
+ S.log.unshift(`${g.toUpperCase()} ${win?'WIN':'LOSS'} · streak ${r.k+(win?1:0)} · wager ${fmt(r.W)}`);S.log.length=Math.min(S.log.length,30);
+ if(win){r.M=Math.min(r.M*rm(p,r.k),cfg.maxMult);r.k++;S.st.wins++;S.msg=`WIN! Streak ${r.k}. Cash out ${fmt(r.W*r.M)} or play again.`}
+ else{S.st.losses++;S.msg=`Lost. Wager ${fmt(r.W)} gone.`;S.run=null}
+ render()}
+function cash(){const r=S.run;if(!r)return;const v=r.W*r.M;S.bal+=v;S.st.paid+=v;S.run=null;S.msg='Cashed out '+fmt(v);render()}
+function dep(){const a=+prompt('Demo deposit amount (min ₦500)');if(a>=500){S.bal+=a;say('Demo credit added: '+fmt(a))}else if(a)say('Minimum deposit is ₦500')}
+function rdep(){const a=500+rnd(46)*100;S.bal+=a;say('Random demo deposit: '+fmt(a))}
+function wd(){const a=+prompt('Withdraw amount (min ₦100)');if(!a)return;if(a<100)return say('Minimum withdrawal is ₦100');if(a>S.bal||S.run)return say('Not enough balance, or finish your active round first.');
+ const pct=Math.round((cfg.wfMin+rnd(1e6)/1e6*(cfg.wfMax-cfg.wfMin))*10)/10,fee=a*pct/100;
+ if(confirm(`Withdrawal fee: ${pct}% = ${fmt(fee)}\nYou receive: ${fmt(a-fee)}\n(Demo only – no real money moves.) Confirm?`)){S.bal-=a;S.st.wfees+=fee;say(`Demo withdrawal done. Fee ${pct}%.`)}}
+function admin(){
+ if(!S.adm){if(prompt('Admin password')!==cfg.pw){location.hash='';return}S.adm=1}
+ const t=S.st,f=(id,l,v)=>`<label>${l}<input id=${id} value="${v}"></label>`;
+ app.innerHTML=`<h1>ROLLZET Admin</h1><small>Demo only: edits this browser's copy and is not secure. Real operation needs a server.</small>
+<div class=c>Active sessions: 1 (this browser)<br>Total stakes ${fmt(t.stakes)}<br>Management fees ${fmt(t.fees)}<br>Withdrawal fees ${fmt(t.wfees)}<br>Winning rounds ${t.wins} · Losing rounds ${t.losses}<br>Paid out ${fmt(t.paid)}</div>
+<div class=c>${f('a_edge','House edge (%)',cfg.edge*100)}${f('a_max','Max payout multiplier (cap)',cfg.maxMult)}${f('a_min','Minimum stake (₦)',cfg.minStake)}${f('a_wmin','Withdrawal fee min (%)',cfg.wfMin)}${f('a_wmax','Withdrawal fee max (%)',cfg.wfMax)}
+${f('a_prog','Progression factor per streak step, 21 comma-separated values (1 = fair; above 1 favours players)',cfg.prog.join(','))}${f('a_pw','Admin password',cfg.pw)}
+<label><input type=checkbox id=a_dice ${cfg.dice?'checked':''} style="width:auto"> Dice active</label><label><input type=checkbox id=a_coin ${cfg.coin?'checked':''} style="width:auto"> Coin active</label>
+<div class=r><button onclick=save()>SAVE</button><button onclick="fresh();admin()">RESET DEMO</button><button onclick="location.hash=''">EXIT</button></div></div>
+<div class=c>Recent rounds<br>${S.log.map(x=>`<div class=m>${x}</div>`).join('')||'<span class=m>None</span>'}</div>`}
+function save(){const n=id=>parseFloat($('#'+id).value),e=n('a_edge')/100,mn=n('a_min'),mx=n('a_max'),a=n('a_wmin'),b=n('a_wmax'),pr=$('#a_prog').value.split(',').map(Number);
+ if(!(e>=0&&e<.5&&mn>0&&mx>=1&&a>=0&&b>=a&&pr.length&&pr.every(x=>x>0)))return alert('Invalid values');
+ Object.assign(cfg,{edge:e,maxMult:mx,minStake:mn,wfMin:a,wfMax:b,prog:pr,dice:$('#a_dice').checked,coin:$('#a_coin').checked,pw:$('#a_pw').value||cfg.pw});
+ try{localStorage.rz_cfg=JSON.stringify(cfg)}catch(x){}alert('Saved')}
+addEventListener('hashchange',render);render();
+</script></body></html>
