@@ -13,7 +13,7 @@ table{width:100%;font-size:13px}
 </style></head><body><div id="app"></div>
 <script>
 const $=s=>document.querySelector(s),app=$('#app'),fmt=n=>'₦'+n.toLocaleString('en-NG',{maximumFractionDigits:2});
-const cfg={edge:.10,maxMult:100,minStake:100,wfMin:6.8,wfMax:10,dice:true,coin:true,pw:'rollzet',prog:Array(21).fill(1)};
+const cfg={paused:false,maxStake:5000,maxSessWin:20000,coinMult:1.23,edge:.25,maxMult:10,maxWin:10000,maxStreak:3,minStake:100,wfMin:6.8,wfMax:10,dice:true,coin:true,pw:'rollzet',prog:Array(21).fill(1)};
 try{Object.assign(cfg,JSON.parse(localStorage.rz_cfg||'{}'))}catch(e){}
 let S,V={game:'dice',n:1,pick:null,side:null,stake:500};
 const fresh=()=>S={bal:10000,run:null,log:[],msg:'',last:'',adm:S&&S.adm,st:{stakes:0,fees:0,wfees:0,wins:0,losses:0,paid:0}};fresh();
@@ -23,7 +23,7 @@ const rnd=n=>{const a=new Uint32Array(1),lim=4294967296-4294967296%n;do crypto.g
 function dist(n){let c=[1];for(let i=0;i<n;i++){const d=Array(c.length+5).fill(0);c.forEach((v,j)=>{for(let k=0;k<6;k++)d[j+k]+=v});c=d}return c}
 const prob=(n,t)=>dist(n)[t-n]/6**n;
 // multiplier = (1 - house edge) / probability, times admin progression factor for this streak step
-const rm=(p,k)=>(1-cfg.edge)/p*(cfg.prog[Math.min(k,cfg.prog.length-1)]||1);
+const rm=(p,k,g)=>(g=='coin'?cfg.coinMult:(1-cfg.edge)/p)*(cfg.prog[Math.min(k,cfg.prog.length-1)]||1);
 const say=m=>{S.msg=m;render()};
 function render(){
  if(location.hash=='#admin')return admin();
@@ -31,7 +31,7 @@ function render(){
  let h=`<h1>ROLLZET</h1><small>⚠ Demo balance is temporary and is NOT real money. Reloading clears it.</small>
 <div class=c>Balance: <b>${fmt(S.bal)}</b><div class=r><button onclick=dep()>Deposit (min ₦500)</button><button onclick=wd()>Withdraw (min ₦100)</button><button onclick=rdep()>Random demo deposit</button></div></div>
 <div class=r><button class="${g=='dice'?'on':''}" onclick="V.game='dice';render()">DICE ROLL</button><button class="${g=='coin'?'on':''}" onclick="V.game='coin';render()">COIN FLIP</button></div>`;
- if(!cfg[g])h+='<p>This game is switched off.</p>';
+ if(cfg.paused)h+='<p>Games are paused. Please check back later.</p>';else if(!cfg[g])h+='<p>This game is switched off.</p>';
  else{
   if(g=='dice'){
    h+=`<div class=m>Dice</div><div class=r>${[1,2,3,4,5].map(n=>`<button class="${V.n==n?'on':''}" onclick="V.n=${n};V.pick=null;render()">${n}</button>`).join('')}</div><div class=m>Your total (${V.n}–${V.n*6})</div><div class=r>${Array.from({length:V.n*5+1},(_,i)=>i+V.n).map(t=>`<button style="flex:0 0 17%" class="${V.pick==t?'on':''}" onclick="V.pick=${t};render()">${t}</button>`).join('')}</div>`;
@@ -41,26 +41,26 @@ function render(){
   }
   h+=`<label>Stake (₦)<input type=number inputmode=numeric value="${r?r.stake:V.stake}" ${r?'disabled':''} oninput="V.stake=+this.value;info()"></label><div id=info class=m></div>`;
   const L=g=='dice'?['PLAY','PLAY AGAIN']:['FLIP','FLIP AGAIN'];
-  h+=r?`<div class=r><button onclick=cash()>CASH OUT ${fmt(r.W*r.M)}</button><button onclick=play()>${L[1]}</button></div>`:`<div class=r><button onclick=play()>${L[0]}</button></div>`;
+  h+=r?`<div class=r><button onclick=cash()>CASH OUT</button><button onclick=play()>${L[1]}</button></div>`:`<div class=r><button onclick=play()>${L[0]}</button></div>`;
  }
  h+=`<p>${S.msg}</p>`;app.innerHTML=h;info();
 }
 function info(){const el=$('#info');if(!el)return;const g=V.game,r=S.run,s=r?r.stake:V.stake||0;let p=0;
  if(g=='dice'&&V.pick!=null)p=prob(V.n,V.pick);if(g=='coin'&&V.side)p=.5;
  const base=r?r.W*r.M:s*.9,k=r?r.k:0;
- el.innerHTML=`Stake ${fmt(s)} · management fee 10% ${fmt(s*.1)} · wager ${fmt(s*.9)}`+(p?`<br>Chance ${(p*100).toFixed(2)}% · this round pays ×${rm(p,k).toFixed(2)} · if you win: ${fmt(Math.min(base*rm(p,k),(r?r.W:s*.9)*cfg.maxMult))}`:'<br>Make your selection to see the multiplier.')+(r?`<br>Streak ${r.k} · cash out now ${fmt(r.W*r.M)}`:'')+`<br>Max payout: ×${cfg.maxMult} of your wager`}
-function play(){const g=V.game;let r=S.run;
+ el.innerHTML=`Stake ${fmt(s)} · management fee 10% ${fmt(s*.1)} · wager ${fmt(s*.9)}`+(p?`<br>Chance ${(p*100).toFixed(2)}% · pays ×${rm(p,k,g).toFixed(2)}`:'<br>Make your selection to see the multiplier.')+(r?`<br>Streak ${r.k}`:'')+`<br>Max payout: ×${cfg.maxMult} of your wager, never more than ${fmt(cfg.maxWin)} · max streak ${cfg.maxStreak}`}
+function play(){const g=V.game;let r=S.run;if(cfg.paused)return say('Games are paused.');
  if((g=='dice'&&V.pick==null)||(g=='coin'&&!V.side))return say('Make your selection first.');
- if(!r){const s=V.stake;if(!(s>=cfg.minStake))return say('Minimum stake is '+fmt(cfg.minStake));if(s>S.bal)return say('Not enough demo balance.');
+ if(!r){const s=V.stake;if(!(s>=cfg.minStake))return say('Minimum stake is '+fmt(cfg.minStake));if(s>S.bal)return say('Not enough demo balance.');if(s>cfg.maxStake)return say('Maximum stake is '+fmt(cfg.maxStake));if(S.st.paid-S.st.stakes>=cfg.maxSessWin)return say('Win limit reached for this session.');
   S.bal-=s;S.st.stakes+=s;S.st.fees+=s*.1;r=S.run={g,stake:s,W:s*.9,M:1,k:0}}
  let p,win;
  if(g=='dice'){const f=Array.from({length:V.n},()=>rnd(6)+1),t=f.reduce((a,b)=>a+b);p=prob(V.n,V.pick);win=t==V.pick;S.last=f.map(x=>`<span class=d>${x}</span>`).join('')+`<div>Total ${t}</div>`}
  else{const h=rnd(2)?'TAILS':'HEADS';p=.5;win=h==V.side;S.last=h}
  S.log.unshift(`${g.toUpperCase()} ${win?'WIN':'LOSS'} · streak ${r.k+(win?1:0)} · wager ${fmt(r.W)}`);S.log.length=Math.min(S.log.length,30);
- if(win){r.M=Math.min(r.M*rm(p,r.k),cfg.maxMult);r.k++;S.st.wins++;S.msg=`WIN! Streak ${r.k}. Cash out ${fmt(r.W*r.M)} or play again.`}
- else{S.st.losses++;S.msg=`Lost. Wager ${fmt(r.W)} gone.`;S.run=null}
+ if(win){r.M=Math.min(r.M*rm(p,r.k,g),cfg.maxMult,cfg.maxWin/r.W);r.k++;S.st.wins++;S.msg=`WIN! Streak ${r.k}. Cash out or play again.`;if(r.k>=cfg.maxStreak){cash();S.msg='Max streak reached. '+S.msg;return render()}}
+ else{S.st.losses++;S.msg='Lost.';S.run=null}
  render()}
-function cash(){const r=S.run;if(!r)return;const v=r.W*r.M;S.bal+=v;S.st.paid+=v;S.run=null;S.msg='Cashed out '+fmt(v);render()}
+function cash(){const r=S.run;if(!r)return;const v=r.W*r.M;S.bal+=v;S.st.paid+=v;S.run=null;S.msg='Cashed out.';render()}
 function dep(){const a=+prompt('Demo deposit amount (min ₦500)');if(a>=500){S.bal+=a;say('Demo credit added: '+fmt(a))}else if(a)say('Minimum deposit is ₦500')}
 function rdep(){const a=500+rnd(46)*100;S.bal+=a;say('Random demo deposit: '+fmt(a))}
 function wd(){const a=+prompt('Withdraw amount (min ₦100)');if(!a)return;if(a<100)return say('Minimum withdrawal is ₦100');if(a>S.bal||S.run)return say('Not enough balance, or finish your active round first.');
@@ -71,14 +71,14 @@ function admin(){
  const t=S.st,f=(id,l,v)=>`<label>${l}<input id=${id} value="${v}"></label>`;
  app.innerHTML=`<h1>ROLLZET Admin</h1><small>Demo only: edits this browser's copy and is not secure. Real operation needs a server.</small>
 <div class=c>Active sessions: 1 (this browser)<br>Total stakes ${fmt(t.stakes)}<br>Management fees ${fmt(t.fees)}<br>Withdrawal fees ${fmt(t.wfees)}<br>Winning rounds ${t.wins} · Losing rounds ${t.losses}<br>Paid out ${fmt(t.paid)}</div>
-<div class=c>${f('a_edge','House edge (%)',cfg.edge*100)}${f('a_max','Max payout multiplier (cap)',cfg.maxMult)}${f('a_min','Minimum stake (₦)',cfg.minStake)}${f('a_wmin','Withdrawal fee min (%)',cfg.wfMin)}${f('a_wmax','Withdrawal fee max (%)',cfg.wfMax)}
+<div class=c>${f('a_edge','House edge (%)',cfg.edge*100)}${f('a_max','Max payout multiplier (cap)',cfg.maxMult)}${f('a_win','Max win per run (₦)',cfg.maxWin)}${f('a_str','Max win streak (auto cash-out)',cfg.maxStreak)}${f('a_xs','Maximum stake (₦)',cfg.maxStake)}${f('a_xw','Session win limit (₦ net)',cfg.maxSessWin)}${f('a_cm','Coin multiplier (first round)',cfg.coinMult)}${f('a_min','Minimum stake (₦)',cfg.minStake)}${f('a_wmin','Withdrawal fee min (%)',cfg.wfMin)}${f('a_wmax','Withdrawal fee max (%)',cfg.wfMax)}
 ${f('a_prog','Progression factor per streak step, 21 comma-separated values (1 = fair; above 1 favours players)',cfg.prog.join(','))}${f('a_pw','Admin password',cfg.pw)}
-<label><input type=checkbox id=a_dice ${cfg.dice?'checked':''} style="width:auto"> Dice active</label><label><input type=checkbox id=a_coin ${cfg.coin?'checked':''} style="width:auto"> Coin active</label>
-<div class=r><button onclick=save()>SAVE</button><button onclick="fresh();admin()">RESET DEMO</button><button onclick="location.hash=''">EXIT</button></div></div>
+<label><input type=checkbox id=a_pause ${cfg.paused?'checked':''} style="width:auto"> PAUSE ALL GAMES (break mode)</label><label><input type=checkbox id=a_dice ${cfg.dice?'checked':''} style="width:auto"> Dice active</label><label><input type=checkbox id=a_coin ${cfg.coin?'checked':''} style="width:auto"> Coin active</label>
+<div class=r><button onclick=save()>SAVE</button><button onclick="fresh();admin()">RESET DEMO</button><button onclick="location.hash=''">EXIT</button></div><div id=ex></div></div>
 <div class=c>Recent rounds<br>${S.log.map(x=>`<div class=m>${x}</div>`).join('')||'<span class=m>None</span>'}</div>`}
-function save(){const n=id=>parseFloat($('#'+id).value),e=n('a_edge')/100,mn=n('a_min'),mx=n('a_max'),a=n('a_wmin'),b=n('a_wmax'),pr=$('#a_prog').value.split(',').map(Number);
- if(!(e>=0&&e<.5&&mn>0&&mx>=1&&a>=0&&b>=a&&pr.length&&pr.every(x=>x>0)))return alert('Invalid values');
- Object.assign(cfg,{edge:e,maxMult:mx,minStake:mn,wfMin:a,wfMax:b,prog:pr,dice:$('#a_dice').checked,coin:$('#a_coin').checked,pw:$('#a_pw').value||cfg.pw});
- try{localStorage.rz_cfg=JSON.stringify(cfg)}catch(x){}alert('Saved')}
-addEventListener('hashchange',render);render();
+function save(){const n=id=>parseFloat($('#'+id).value),e=n('a_edge')/100,mn=n('a_min'),mx=n('a_max'),mw=n('a_win'),ms=n('a_str'),cm=n('a_cm'),xs=n('a_xs'),xw=n('a_xw'),a=n('a_wmin'),b=n('a_wmax'),pr=$('#a_prog').value.split(',').map(Number);
+ if(!(e>=0&&e<.5&&mn>0&&mx>=1&&mw>0&&ms>=1&&cm>1&&xs>0&&xw>0&&a>=0&&b>=a&&pr.length&&pr.every(x=>x>0)))return alert('Invalid values');
+ Object.assign(cfg,{edge:e,maxMult:mx,maxWin:mw,maxStreak:ms,coinMult:cm,maxStake:xs,maxSessWin:xw,minStake:mn,wfMin:a,wfMax:b,prog:pr,paused:$('#a_pause').checked,dice:$('#a_dice').checked,coin:$('#a_coin').checked,pw:$('#a_pw').value||cfg.pw});
+ try{localStorage.rz_cfg=JSON.stringify(cfg)}catch(x){}const o={...cfg};delete o.pw;$('#ex').innerHTML='<small>To apply this for ALL players, open config.json on GitHub, replace everything with this text, and commit:</small><textarea style="width:100%;height:150px;background:#222;color:#fff">'+JSON.stringify(o)+'</textarea>'}
+addEventListener('hashchange',render);render();fetch('config.json',{cache:'no-store'}).then(x=>x.json()).then(j=>{Object.assign(cfg,j);render()}).catch(()=>{});
 </script></body></html>
